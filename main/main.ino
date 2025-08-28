@@ -1,23 +1,33 @@
 #include "sensors.hpp"
+#include "udp_embed.hpp"
+#include "wifi_credentials.hpp"
+#include <WiFi.h>
 
 void setup() {
   Serial.begin(115200);
+
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("IP address: ");
+  Serial.println(WiFi.localIP());
+
+  udpSetup();
 
   pinMode(LED_RED, OUTPUT);
   pinMode(LED_GREEN, OUTPUT);
   pinMode(LED_BLUE, OUTPUT);
   pinMode(BUZZER_PASSIVE, OUTPUT);
   pinMode(LASER_EMITTER, OUTPUT);
-  
   pinMode(JOYSTICK_SWITCH, INPUT_PULLUP);
   pinMode(INFRARED_SENSOR, INPUT);
-
   pinMode(PHOTORESISTOR, INPUT);
   pinMode(JOYSTICK_X, INPUT);
   pinMode(JOYSTICK_Y, INPUT);
 
   Wire.begin(MOTOR_SDA, MOTOR_SCL);
-
   motorSetup();
 
   xTaskCreate(infraredSensorTask, "Infrared_Task", 1024, NULL, 1, NULL);

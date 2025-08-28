@@ -1,6 +1,10 @@
 #include "sensors.hpp"
 
 Adafruit_PWMServoDriver motors = Adafruit_PWMServoDriver(0x40);
+SemaphoreHandle_t mutexMotor = xSemaphoreCreateMutex();
+SemaphoreHandle_t mutexInfrared = xSemaphoreCreateMutex();
+SemaphoreHandle_t mutexPhotoresistor = xSemaphoreCreateMutex();
+SensorStates sensors = {0, 0, 500, false, false};
 
 /* HELPERS */
 
@@ -42,47 +46,84 @@ void motorSetup() {
 
 void infraredSensorTask(void *pvParameters) {
   while (true) {
-    vTaskDelay(10);
+    if(xSemaphoreTake(mutexInfrared, pdMS_TO_TICKS(10)) == pdTRUE) {
+      sensors.isInfraredDetecting = digitalRead(INFRARED_SENSOR) == 0;
+      xSemaphoreGive(mutexInfrared);
+    }
+    vTaskDelay(pdMS_TO_TICKS(50));
   }
 }
 
 void joystickTask(void *pvParameters) {
   while (true) {
-    digitalRead(JOYSTICK_SWITCH);
-    vTaskDelay(pdMS_TO_TICKS(10));
+    if(xSemaphoreTake(mutexMotor, pdMS_TO_TICKS(10)) == pdTRUE) {
+      sensors.isJoystickPressed = digitalRead(JOYSTICK_SWITCH) == 0;
+      sensors.joystickX = map(analogRead(JOYSTICK_X), 0, 4095, 0, 180);
+      sensors.joystickY = map(analogRead(JOYSTICK_Y), 0, 4095, 0, 135);
+      xSemaphoreGive(mutexMotor);
+    }
+    vTaskDelay(pdMS_TO_TICKS(20));
   }
 }
 
 void laserEmitterTask(void *pvParameters) {
   while (true) {
-    digitalWrite(LASER_EMITTER, !digitalRead(JOYSTICK_SWITCH));
-    vTaskDelay(pdMS_TO_TICKS(10));
+    if(xSemaphoreTake(mutexMotor, pdMS_TO_TICKS(10)) == pdTRUE) {
+      digitalWrite(LASER_EMITTER, sensors.isJoystickPressed);
+      xSemaphoreGive(mutexMotor);
+    }
+    vTaskDelay(pdMS_TO_TICKS(50));
   }
 }
 
 void ledTask(void *pvParameters) {
   while (true) {
-    if (digitalRead(INFRARED_SENSOR)) {
-      digitalWrite(LED_RED, HIGH);
-      digitalWrite(LED_GREEN, LOW);
-      digitalWrite(LED_BLUE, LOW);
-    } else {
-      digitalWrite(LED_RED, LOW);
-      digitalWrite(LED_GREEN, HIGH);
-      digitalWrite(LED_BLUE, LOW);
+    if(xSemaphoreTake(mutexInfrared, pdMS_TO_TICKS(10)) == pdTRUE) {
+      if(xSemaphoreTake(mutexPhotoresistor, pdMS_TO_TICKS(10)) == pdTRUE) {
+        if (sensors.isInfraredDetecting) {
+          digitalWrite(LED_RED, LOW);
+          digitalWrite(LED_GREEN, HIGH);
+          digitalWrite(LED_BLUE, LOW);
+        } else {
+          digitalWrite(LED_RED, HIGH);
+          digitalWrite(LED_GREEN, LOW);
+          digitalWrite(LED_BLUE, LOW);
+        }
+
+        static bool redLED = true;
+        static int counter = 0;
+        if (sensors.photoresistorValue < 500) {
+          digitalWrite(LED_GREEN, 0);
+          
+          if (counter++ % 3 == 0) redLED = !redLED;
+
+          if (redLED) {
+            digitalWrite(LED_RED, HIGH);
+            digitalWrite(LED_BLUE, LOW);
+          } else {
+            digitalWrite(LED_RED, LOW);
+            digitalWrite(LED_BLUE, HIGH);
+          }
+        } else {
+          counter = 0;
+        }
+      
+        xSemaphoreGive(mutexPhotoresistor);
+      }
+      xSemaphoreGive(mutexInfrared);
     }
 
-    vTaskDelay(pdMS_TO_TICKS(10));
+    vTaskDelay(pdMS_TO_TICKS(50));
   }
 }
 
 void motorDriverTask(void *pvParameters) {
   while (true) {
-    int angleX = map(analogRead(JOYSTICK_X), 0, 4095, 0, 180);
-    motors.setPWM(0, 0, ANGLE_TO_PULSE(angleX));
-
-    int angleY = map(analogRead(JOYSTICK_Y), 0, 4095, 0, 135);
-    motors.setPWM(1, 0, ANGLE_TO_PULSE(angleY));
+    if(xSemaphoreTake(mutexMotor, pdMS_TO_TICKS(10)) == pdTRUE) {
+      motors.setPWM(0, 0, ANGLE_TO_PULSE(sensors.joystickX));
+      motors.setPWM(1, 0, ANGLE_TO_PULSE(sensors.joystickY));
+      xSemaphoreGive(mutexMotor);
+    }
 
     vTaskDelay(pdMS_TO_TICKS(20));
   }
@@ -90,39 +131,31 @@ void motorDriverTask(void *pvParameters) {
 
 void passiveBuzzerTask(void *pvParameters) {
   while (true) {
-    if (analogRead(PHOTORESISTOR) < 500) {
-      digitalWrite(LED_GREEN, 0);
-      bool redLED = true;
-      for (int i = 0; i < 100; i++) {
-        digitalWrite(BUZZER_PASSIVE, HIGH);
-        vTaskDelay(pdMS_TO_TICKS(2));
-        digitalWrite(BUZZER_PASSIVE, LOW);
-        vTaskDelay(pdMS_TO_TICKS(2));
-
-        if (i % 20 == 0) redLED = !redLED; 
-
-        if (redLED) {
-          digitalWrite(LED_RED, HIGH);
-          digitalWrite(LED_BLUE, LOW);
-        } else {
-          digitalWrite(LED_RED, LOW);
-          digitalWrite(LED_BLUE, HIGH);
+    if(xSemaphoreTake(mutexPhotoresistor, pdMS_TO_TICKS(10)) == pdTRUE) {
+      if (sensors.photoresistorValue < 500) {
+        xSemaphoreGive(mutexPhotoresistor);
+        for (int i = 0; i < 25; i++) {
+          digitalWrite(BUZZER_PASSIVE, HIGH);
+          vTaskDelay(pdMS_TO_TICKS(2));
+          digitalWrite(BUZZER_PASSIVE, LOW);
+          vTaskDelay(pdMS_TO_TICKS(2));
         }
+      } else {
+        xSemaphoreGive(mutexPhotoresistor);
       }
     }
 
-    vTaskDelay(pdMS_TO_TICKS(10));
+    vTaskDelay(pdMS_TO_TICKS(50));
   }
 }
 
 void photoresistorTask(void *pvParameters) {
   while (true) {
-    vTaskDelay(pdMS_TO_TICKS(10));
-  }
-}
+    if(xSemaphoreTake(mutexPhotoresistor, pdMS_TO_TICKS(10)) == pdTRUE) {
+      sensors.photoresistorValue = analogRead(PHOTORESISTOR);
+      xSemaphoreGive(mutexPhotoresistor);
+    }
 
-void udpTask(void *pvParameters) {
-  while (true) {
-    vTaskDelay(pdMS_TO_TICKS(10));
+    vTaskDelay(pdMS_TO_TICKS(50));
   }
 }

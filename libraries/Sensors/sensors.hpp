@@ -25,7 +25,19 @@
 #define JOYSTICK_X 34
 #define JOYSTICK_Y 35
 
+typedef struct {
+    int joystickX;
+    int joystickY;
+    int photoresistorValue;
+    bool isInfraredDetecting;
+    bool isJoystickPressed;
+} SensorStates;
+
 extern Adafruit_PWMServoDriver motors;
+extern SemaphoreHandle_t mutexMotor;
+extern SemaphoreHandle_t mutexInfrared;
+extern SemaphoreHandle_t mutexPhotoresistor;
+extern SensorStates sensors;
 
 /* FUNCTIONS */
 
@@ -52,4 +64,3 @@ void ledTask(void *pvParameters);
 void motorDriverTask(void *pvParameters);
 void passiveBuzzerTask(void *pvParameters);
 void photoresistorTask(void *pvParameters);
-void udpTask(void *pvParameters);
