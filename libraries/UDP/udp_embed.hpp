@@ -17,6 +17,6 @@ extern const char *hello;
 extern struct sockaddr_in servaddr;
 
 
-void udpSetup();
-
+void networkSetup();
+void udpSendMessage();
 void udpTask(void *pvParameters);

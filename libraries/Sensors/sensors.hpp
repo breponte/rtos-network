@@ -1,5 +1,6 @@
 #include "Adafruit_PWMServoDriver.h"
 #include "Wire.h"
+#include <cstdint>
 
 #define SERVOMIN  150
 #define SERVOMAX  600
@@ -26,9 +27,9 @@
 #define JOYSTICK_Y 35
 
 typedef struct {
-    int joystickX;
-    int joystickY;
-    int photoresistorValue;
+    uint16_t joystickX;
+    uint16_t joystickY;
+    uint16_t photoresistorValue;
     bool isInfraredDetecting;
     bool isJoystickPressed;
 } SensorStates;

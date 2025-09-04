@@ -9,6 +9,7 @@ sock.bind((UDP_IP, UDP_PORT))
 
 while True:
     data, addr = sock.recvfrom(1024) # buffer size is 1024 bytes
+    # WARNING: Might be data misaligned because of uint16_t data type
     print(f"Infrared: {data[12]} \
             Joystick Button: {data[13]} \
             Joystick X: {int.from_bytes(data[0:4], byteorder="little", signed=True)} \

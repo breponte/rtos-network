@@ -11,7 +11,6 @@ HandshakeState handleTCPState(HandshakeState state, EventTCP event) {
         } else {
             return LISTEN;
         }
-        break;
     case LISTEN:
         if (event == SYN) {
             // TODO: Send SYN_ACK
@@ -19,6 +18,8 @@ HandshakeState handleTCPState(HandshakeState state, EventTCP event) {
         } else if (event == Send) {
             // TODO: Send SYN
             return SYN_SENT;
+        } else {
+            return LISTEN;
         }
     case SYN_SENT:
         if (event == Close) {
@@ -29,6 +30,8 @@ HandshakeState handleTCPState(HandshakeState state, EventTCP event) {
         } else if (event == SYN_ACK) {
             // TODO: Send ACK
             return ESTABLISHED;
+        } else {
+            return SYN_SENT;
         }
     case SYN_RCVD:
         if (event == ACK) {
@@ -36,6 +39,8 @@ HandshakeState handleTCPState(HandshakeState state, EventTCP event) {
         } else if (event == Close) {
             // TODO: Send FIN
             return FIN_WAIT_1;
+        } else {
+            return SYN_RCVD;
         }
     case ESTABLISHED:
         if (event == Close) {
@@ -44,8 +49,10 @@ HandshakeState handleTCPState(HandshakeState state, EventTCP event) {
         } else if (event == FIN) {
             // TODO: Send ACK
             return CLOSE_WAIT;
-        }
+        } else {
         // TODO: Send message
+            return ESTABLISHED;
+        }
     case FIN_WAIT_1:
         if (event == ACK) {
             return FIN_WAIT_2;
@@ -55,30 +62,82 @@ HandshakeState handleTCPState(HandshakeState state, EventTCP event) {
         } else if (event == FIN) {
             // TODO: Send ACK
             return CLOSING;
+        } else {
+            return FIN_WAIT_1;
         }
     case FIN_WAIT_2:
         if (event == FIN) {
             // TODO: Send ACK
             return TIME_WAIT;
+        } else {
+            return FIN_WAIT_2;
         }
     case CLOSING:
         if (event == ACK) {
             return TIME_WAIT;
+        } else {
+            return CLOSING;
         }
     case TIME_WAIT:
         // TODO: Timeout
+        return TIME_WAIT;
     case CLOSE_WAIT:
         if (event == Close) {
             // TODO: Send FIN
             return LAST_ACK;
+        } else {
+            return CLOSE_WAIT;
         }
     case LAST_ACK:
         if (event == ACK) {
             return CLOSED;
+        } else {
+            return LAST_ACK;
         }
 
     default:
-        // either unrecognized state or stall on state given no valid input
+        // unrecognized state
         return state;
     }
+}
+
+void tcpSendMessage(uint16_int flags) {
+    int n;
+    socklen_t len;
+
+    if (xSemaphoreTake(mutexMotor, 0) == pdFALSE) return;
+    if (xSemaphoreTake(mutexInfrared, 0) == pdFALSE) return;
+    if (xSemaphoreTake(mutexPhotoresistor, 0) == pdFALSE) return;
+    
+    PacketTCP packet;
+    packet.flags = flags;
+    // TODO: Record and input sequenceNum and ackNum
+    // TODO: Record and input window size
+    // TODO: Urgent pointer???
+    // TODO: CRC checksum
+
+    // WARNING: Data misalignment, manage directly
+    memcpy(&packet.data, &sensors, sizeof(SensorStates));
+
+    // little endian
+    sendto(sockfd, (const char *)packet, sizeof(PacketTCP), 
+        0, (const struct sockaddr *) &servaddr,  
+            sizeof(servaddr));
+    
+    xSemaphoreGive(mutexPhotoresistor);
+    xSemaphoreGive(mutexInfrared);
+    xSemaphoreGive(mutexMotor);
+            
+    n = recvfrom(sockfd, (char *)inBuffer, MAXLINE,  
+                MSG_WAITALL, (struct sockaddr *) &servaddr, 
+                &len); 
+    inBuffer[n] = '\0'; 
+    Serial.println(inBuffer);
+}
+
+void tcpTask(void *pvParameters) {
+    while (true) {
+        tcpSendMessage();
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }  
 }
